@@ -68,7 +68,7 @@ def fill_missing_ivs(row):
 
     for i in range(1, len(strikes)):
         if strikes[i] != strikes[0]:
-            slope_left_linear = (ivs[i] - ivs[0]) / (strikes[i] - strikes[0])
+            slope_left_linear = 1.5 * (ivs[i] - ivs[0]) / (strikes[i] - strikes[0])
             slope_left = (
                 1.5 * (iv_underlying - ivs[0]) / (strike_underlying - strikes[0])
                 if strike_underlying != strikes[0]
@@ -78,7 +78,7 @@ def fill_missing_ivs(row):
 
     for i in range(1, len(strikes)):
         if strikes[-i - 1] != strikes[-1]:
-            slope_right_linear = (ivs[-1] - ivs[-i - 1]) / (strikes[-1] - strikes[-i - 1])
+            slope_right_linear = 1.5 * (ivs[-1] - ivs[-i - 1]) / (strikes[-1] - strikes[-i - 1])
             slope_right = (
                 1.5 * (ivs[-1] - iv_underlying) / (strikes[-1] - strike_underlying)
                 if strike_underlying != strikes[-1]
@@ -120,4 +120,4 @@ filled_ivs_array.columns = iv_cols
 output_df = pd.concat([output_df, filled_ivs_array], axis=1)
 output_df.to_csv('v4.csv', index=False)
 
-print("Missing IVs filled using normalized strikes and clipping, saved to v4.csv")
+print("Missing IVs filled using normalized strikes and clipping, saved to v45.csv")

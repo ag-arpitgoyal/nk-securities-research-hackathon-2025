@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import re
-from scipy.interpolate import UnivariateSpline
+from scipy.interpolate import CubicSpline
 from tqdm import tqdm
 
 # Load data
@@ -16,29 +16,38 @@ output_df = df[['timestamp']].copy()
 
 # Function to fill missing IVs for a single row
 def fill_missing_ivs(row):
-    iv_data = {}
     underlying_price = row['underlying']
-
     if pd.isna(underlying_price) or underlying_price == 0:
         return [row[col] for col in iv_cols]  # Skip if underlying is missing or zero
+
+    # Aggregate multiple IVs at the same moneyness
+    moneyness_sum = {}
+    moneyness_count = {}
 
     for col in iv_cols:
         strike = strike_map[col]
         iv = row[col]
         if pd.notna(iv):
             moneyness = strike / underlying_price
-            iv_data[moneyness] = iv
+            if moneyness in moneyness_sum:
+                moneyness_sum[moneyness] += iv
+                moneyness_count[moneyness] += 1
+            else:
+                moneyness_sum[moneyness] = iv
+                moneyness_count[moneyness] = 1
 
-    if len(iv_data) < 3:
+    if len(moneyness_sum) < 3:
         return [row[col] for col in iv_cols]  # Not enough points for spline
 
-    # Prepare data
+    # Compute average IVs at each moneyness
+    iv_data = {k: moneyness_sum[k] / moneyness_count[k] for k in moneyness_sum}
     strikes, ivs = zip(*sorted(iv_data.items()))
     strikes = np.array(strikes)
     ivs = np.array(ivs)
+
     moneyness_underlying = 1.0
 
-    # Mirroring logic
+    # Mirroring logic (in moneyness space)
     left_mask = strikes < moneyness_underlying
     right_mask = strikes > moneyness_underlying
     num_left = np.sum(left_mask)
@@ -55,33 +64,47 @@ def fill_missing_ivs(row):
         strikes = np.concatenate([mirror_strikes, strikes])
         ivs = np.concatenate([mirror_ivs, ivs])
     elif num_left < 2 and num_right < 2:
-        return [row[col] for col in iv_cols]
+        return [row[col] for col in iv_cols]  # Still not enough valid data
 
-    # Sort
     sorted_idx = np.argsort(strikes)
     strikes = strikes[sorted_idx]
     ivs = ivs[sorted_idx]
 
-    # Apply weights: exponentially decay away from ATM
-    weights = np.exp(-np.abs(strikes - moneyness_underlying) / 0.05)
+    # Get slope estimates
+    idx_underlying = np.abs(strikes - moneyness_underlying).argmin()
+    strike_underlying = strikes[idx_underlying]
+    iv_underlying = ivs[idx_underlying]
 
-    # Fit weighted spline
-    try:
-        spline = UnivariateSpline(strikes, ivs, w=weights, s=0, ext=0)  # ext=0 returns NaN outside bounds
-    except Exception:
-        return [row[col] for col in iv_cols]
+    for i in range(1, len(strikes)):
+        if strikes[i] != strikes[0]:
+            slope_left_linear = 1.5 * (ivs[i] - ivs[0]) / (strikes[i] - strikes[0])
+            slope_left = (
+                1.5 * (iv_underlying - ivs[0]) / (strike_underlying - strikes[0])
+                if strike_underlying != strikes[0]
+                else slope_left_linear
+            )
+            break
 
-    # Estimate linear extrap slopes for left/right
-    slope_left_linear = (ivs[1] - ivs[0]) / (strikes[1] - strikes[0]) if strikes[1] != strikes[0] else 0
-    slope_right_linear = (ivs[-1] - ivs[-2]) / (strikes[-1] - strikes[-2]) if strikes[-1] != strikes[-2] else 0
+    for i in range(1, len(strikes)):
+        if strikes[-i - 1] != strikes[-1]:
+            slope_right_linear = 1.5 * (ivs[-1] - ivs[-i - 1]) / (strikes[-1] - strikes[-i - 1])
+            slope_right = (
+                1.5 * (ivs[-1] - iv_underlying) / (strikes[-1] - strike_underlying)
+                if strike_underlying != strikes[-1]
+                else slope_right_linear
+            )
+            break
 
-    # Fill IVs
+    # Fit spline
+    spline = CubicSpline(strikes, ivs, bc_type=((1, slope_left), (1, slope_right)), extrapolate=False)
+
+    # Fill missing values
     filled_ivs = []
     for col in iv_cols:
         strike = strike_map[col]
         moneyness = strike / underlying_price
         iv = row[col]
-        if pd.notna(iv):
+        if pd.notna(iv):  # Keep original
             filled_ivs.append(iv)
         elif moneyness < strikes[0]:
             val = ivs[0] + slope_left_linear * (moneyness - strikes[0])
@@ -98,12 +121,12 @@ def fill_missing_ivs(row):
 # Enable progress bar
 tqdm.pandas()
 
-# Apply interpolation row-wise
+# Apply interpolation row-wise with progress bar
 filled_ivs_array = df.progress_apply(fill_missing_ivs, axis=1, result_type='expand')
 filled_ivs_array.columns = iv_cols
 
-# Combine and save
+# Combine with timestamp and save
 output_df = pd.concat([output_df, filled_ivs_array], axis=1)
 output_df.to_csv('v5.csv', index=False)
 
-print("Weighted spline interpolation complete. Saved to v5.csv")
+print("Missing IVs filled using averaged fit and original preservation, saved to v5.csv")
