@@ -5,14 +5,11 @@ from scipy.interpolate import CubicSpline
 from tqdm import tqdm
 
 # Load data
-df = pd.read_csv('/home/arpit_goyal/Desktop/nk-securities/data/test_data.csv')
+df = pd.read_csv('test_data.csv')
 
 # Identify IV columns and strike values
 iv_cols = [col for col in df.columns if re.match(r'(call_iv_|put_iv_)\d+', col)]
 strike_map = {col: int(re.search(r'\d+', col).group()) for col in iv_cols}
-
-# Prepare output DataFrame
-output_df = df[['timestamp']].copy()
 
 # Function to fill missing IVs for a single row
 def fill_missing_ivs(row):
@@ -38,7 +35,7 @@ def fill_missing_ivs(row):
     ivs = np.array(ivs)
     moneyness_underlying = 1.0
 
-    # Mirroring logic (in moneyness space)
+    # Mirroring logic
     left_mask = strikes < moneyness_underlying
     right_mask = strikes > moneyness_underlying
     num_left = np.sum(left_mask)
@@ -55,7 +52,7 @@ def fill_missing_ivs(row):
         strikes = np.concatenate([mirror_strikes, strikes])
         ivs = np.concatenate([mirror_ivs, ivs])
     elif num_left < 2 and num_right < 2:
-        return [row[col] for col in iv_cols]  # Still not enough valid data
+        return [row[col] for col in iv_cols]
 
     sorted_idx = np.argsort(strikes)
     strikes = strikes[sorted_idx]
@@ -112,12 +109,14 @@ def fill_missing_ivs(row):
 # Enable progress bar
 tqdm.pandas()
 
-# Apply interpolation row-wise with progress bar
+# Apply filling to IV columns
 filled_ivs_array = df.progress_apply(fill_missing_ivs, axis=1, result_type='expand')
 filled_ivs_array.columns = iv_cols
 
-# Combine with timestamp and save
-output_df = pd.concat([output_df, filled_ivs_array], axis=1)
-output_df.to_csv('v4.csv', index=False)
+# Replace original IV columns with filled values
+df[iv_cols] = filled_ivs_array
 
-print("Missing IVs filled using normalized strikes and clipping, saved to v4.csv")
+# Save entire DataFrame in same column order
+df.to_csv('aise_hi.csv', index=False)
+
+print("Missing IVs filled in-place and full DataFrame saved to aise_hi.csv")
