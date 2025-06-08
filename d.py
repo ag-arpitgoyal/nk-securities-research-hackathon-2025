@@ -5,10 +5,10 @@ from scipy.interpolate import CubicSpline
 from tqdm import tqdm
 
 # Load data
-df = pd.read_csv('/home/arpit_goyal/Desktop/nk-securities/data/test_data.csv')
+df = pd.read_csv('final_test_unified_half.csv')
 
 # Identify IV columns and strike values
-iv_cols = [col for col in df.columns if re.match(r'(call_iv_|put_iv_)\d+', col)]
+iv_cols = [col for col in df.columns if re.match(r'(iv_)\d+', col)]
 strike_map = {col: int(re.search(r'\d+', col).group()) for col in iv_cols}
 
 # Prepare output DataFrame
@@ -118,6 +118,6 @@ filled_ivs_array.columns = iv_cols
 
 # Combine with timestamp and save
 output_df = pd.concat([output_df, filled_ivs_array], axis=1)
-output_df.to_csv('v4.csv', index=False)
+output_df.to_csv('v4_manual_full.csv', index=False)
 
-print("Missing IVs filled using normalized strikes and clipping, saved to v4.csv")
+print("Missing IVs filled using normalized strikes and clipping, saved to v4_manual_full.csv")
